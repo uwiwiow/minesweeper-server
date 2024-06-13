@@ -5,6 +5,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <string.h>
+#include <netdb.h>
 
 #define MAX_CLIENTS 100
 
@@ -123,21 +124,36 @@ void *handle_client(void *arg) {
 }
 
 int main() {
-    int server_socket = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_socket < 0) {
-        perror("socket");
+    int server_socket, s;
+    struct addrinfo hints = {
+            .ai_family = AF_INET,
+            .ai_socktype = SOCK_STREAM,
+            .ai_protocol = 0,
+            .ai_flags = 0,
+    };
+    struct addrinfo          *result, *rp;
+    s = getaddrinfo(NULL, "12345", &hints, &result);
+    if (s != 0) {
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(s));
         exit(EXIT_FAILURE);
     }
 
-    struct sockaddr_in server_addr = {
-            .sin_family = AF_INET,
-            .sin_port = htons(12345),
-            .sin_addr.s_addr = INADDR_ANY
-    };
+    for (rp = result; rp != NULL; rp = rp->ai_next) {
+        server_socket = socket(rp->ai_family, rp->ai_socktype,
+                     rp->ai_protocol);
+        if (server_socket == -1)
+            continue;
 
-    if (bind(server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
-        perror("bind");
+        if (bind(server_socket, rp->ai_addr, rp->ai_addrlen) == 0)
+            break;                  /* Success */
+
         close(server_socket);
+    }
+
+    freeaddrinfo(result);           /* No longer needed */
+
+    if (rp == NULL) {               /* No address succeeded */
+        fprintf(stderr, "Could not bind\n");
         exit(EXIT_FAILURE);
     }
 
