@@ -21,12 +21,21 @@ typedef enum CellAction {
     QUESTIONED // question tile
 } CellAction;
 
+typedef enum State {
+    START,
+    PLAYING,
+    WIN,
+    LOSE
+} State;
+
 typedef struct Packet {
     Vector2 pos_cursor;
     CellAction action_tile;
+    unsigned int seed;
+    State state;
 } Packet;
 
-typedef struct {
+typedef struct Client {
     int client_fd;
     Packet packet;
 } Client;
@@ -34,6 +43,22 @@ typedef struct {
 Client clients[MAX_CLIENTS];
 int num_clients = 0;
 pthread_mutex_t clients_mutex = PTHREAD_MUTEX_INITIALIZER;
+unsigned int seed;
+int restart = 0;
+
+void create_seed() {
+    seed = (unsigned int)time(NULL);
+}
+
+void *check_restart() {
+    while (1) {
+        if (restart) {
+            create_seed();
+            printf("seed restart %du\n", seed);
+            restart = 0;
+        }
+    }
+}
 
 void remove_client(int client_fd) {
     pthread_mutex_lock(&clients_mutex);
@@ -51,6 +76,8 @@ void *handle_client(void *arg) {
     int client_fd = *((int *)arg);
     free(arg);
 
+    printf("seed %du\n", seed);
+
     Packet packet;
 
     while (1) {
@@ -59,10 +86,17 @@ void *handle_client(void *arg) {
             break;
         }
 
+        if (packet.state == LOSE) {
+            restart = 1;
+        }
+
+
         if (packet.action_tile >= 0 ) {
             printf("Received Packet from client %d: Cursor(%f, %f), Action(%d)\n",
                    client_fd, packet.pos_cursor.x, packet.pos_cursor.y, packet.action_tile);
         }
+
+        packet.seed = seed;
 
         pthread_mutex_lock(&clients_mutex);
         for (int i = 0; i < num_clients; i++) {
@@ -115,6 +149,9 @@ int main() {
 
     printf("Server listening on port 12345\n");
 
+    pthread_t thread_restart;
+    pthread_create(&thread_restart, NULL, check_restart, NULL);
+
     while (1) {
         int client_fd = accept(server_socket, NULL, NULL);
         if (client_fd < 0) {
@@ -128,6 +165,8 @@ int main() {
             pthread_mutex_unlock(&clients_mutex);
             continue;
         }
+
+        create_seed();
 
         clients[num_clients].client_fd = client_fd;
         num_clients++;
